@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<script src="jquery-1.11.3.min.js"></script>
+	<title></title>
+	<link rel="stylesheet" type="text/css" href="bootstrap.css"/>
+	<link rel="stylesheet" type="text/css" href="grid.css"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		body
+		{
+			background-color: gainsboro;
+		}
+		html body
+		{
+			min-width: 320px
+		}
+		.tail-shell
+		{
+			width: 100%;
+			overflow: hidden;
+			margin: 0 auto;
+			-webkit-touch-callout: none;
+			-webkit-user-select: none;
+			-moz-user-select: none;
+			-ms-user-select: none;
+			user-select: none;
+			border: 2px solid #00A7E5;
+		}
+		.tail-shell .midst
+		{
+			display: inline-block;
+		}
+		.tail-shell.handle
+		{
+			cursor: move;
+			cursor: -webkit-grab;
+		}
+		.tail-shell .item
+		{
+			background-image: url("2015-09-09_095217.png");
+			background-repeat: no-repeat;
+			background-position: top center;
+			height: 177px;
+			position: relative;
+			left: 0px;
+			background-size: cover;
+			padding-right: 5px;
+			border-right: 2px solid #000000;
+			float: left;
+		}
+
+	</style>
+</head>
+<body>
+<div class="container">
+	<div class="tail-shell" ondragstart="return false">
+		<div class="item">1</div>
+		<div class="item">2</div>
+		<div class="item">3</div>
+		<div class="item">4</div>
+		<div class="item">5</div>
+		<div class="item">6</div>
+		<div class="item">7</div>
+		<div class="item">8</div>
+		<div class="item">9</div>
+		<div class="item">10</div>
+	</div>
+	<img id="prev" src="feature_arrow_l_mo.png" style="float: left;cursor: pointer"/>
+	<img id="next" src="feature_arrow_r_mo.png" style="float: right;cursor: pointer"/>
+</div>
+
+
+<script type="text/javascript">
+	(function ($)
+	{
+		/**
+		 * element resize listen
+		 */
+		$.fn.eleResize = function (obj)
+		{
+			var receptor = $(this);
+			var lastWidth = receptor.width();
+			var lastHeight = receptor.height();
+			var isChange = function ()
+			{
+				if (receptor.width() != lastWidth || receptor.height() != lastHeight)
+				{
+					receptor.trigger(obj.event);
+					lastWidth = receptor.width();
+					lastHeight = receptor.height();
+				}
+				setTimeout(isChange, obj.interval);
+			}
+			setTimeout(isChange, obj.interval)
+		}
+
+		/**
+		 * Synchronize
+		 */
+		Synchronize = function (semaphore)
+		{
+			this.semaphore = semaphore;
+			this.wait = function ()
+			{
+				if (this.semaphore >= 1)
+				{
+					this.semaphore--;
+					return true;
+				}
+				return false;
+			}
+			this.signal = function ()
+			{
+				this.semaphore++;
+				return true;
+			}
+		}
+	})(jQuery);
+
+	(function ($)
+	{
+		var TAIL = function (shell, init_obj)
+		{
+			/**
+			 * shell
+			 */
+			this.shell = $(shell);
+			/**
+			 * default events
+			 */
+			this.events =
+			{
+				next: "next_item",
+				prev: "prev_item",
+				loaded: "init_end",
+				resized: "Tail_resized",
+				resize: "Tail_resize",
+				drag_start: "drag_start",
+				drag_end: "drag_end",
+				next_end: "next_end",
+				prev_end: "prev_end",
+				slide_end: "slide_end"
+			}
+
+			/**
+			 * default parameters register
+			 */
+			this.param_register =
+			{
+				listenWindow: 'window',
+				items: 3,
+				margin: 25,
+				loop: false,
+				slide: 1
+			}
+
+			/**
+			 * prepare static variable
+			 */
+
+			/**
+			 * carrousel items
+			 */
+			this.hobbyhorse = shell.find('.item');
+
+			/**
+			 * carrousel items quantity
+			 */
+			this.hobbyhorseLength = this.hobbyhorse.length;
+
+			/**
+			 * carrousel items js obj
+			 */
+			this.moveEle = $.makeArray(this.hobbyhorse);
+
+			/**
+			 * item inner width + padding + border
+			 */
+			this.itemWidth;
+
+			/**
+			 * itemWidth + margin
+			 */
+			this.itemSize;
+
+			/**
+			 * current left
+			 */
+			this.destinationLeft;
+
+			/**
+			 * the last time slide distance
+			 */
+			this.onceDistance;
+
+			/**
+			 * begin init
+			 */
+			this.init();
+
+			/**
+			 * init events
+			 */
+			var that = this;
+			shell.on(this.events.resize, function ()
+			{
+				that.update();
+				that.autoAdjust();
+				shell.trigger(that.events.resized);
+			})
+			shell.on(this.events.next, function ()
+			{
+				if (that.tool.synchronize.wait())that.nextItem();
+			})
+			shell.on(this.events.prev, function ()
+			{
+				if (that.tool.synchronize.wait())that.prevItem();
+			})
+		}
+
+
+		/**
+		 *tool class
+		 */
+		TAIL.prototype.tool = {};
+
+		/**
+		 *media left Interval
+		 */
+		TAIL.prototype.tool.window_size = 0;
+		/**
+		 * transform obj to num and NAN =0;
+		 */
+		TAIL.prototype.tool.getNum = function (num)
+		{
+			var n = parseFloat(num);
+			//NaN=0;
+			return n != n ? n = 0 : n;
+		}
+
+		/**
+		 * get event coordinate
+		 */
+		TAIL.prototype.tool.getTouches = function (event)
+		{
+			if (event.touches !== undefined)
+			{
+				return {
+					x: event.touches[0].pageX,
+					y: event.touches[0].pageY
+				};
+			}
+
+			if (event.touches === undefined)
+			{
+				if (event.pageX !== undefined)
+				{
+					return {
+						x: event.pageX,
+						y: event.pageY
+					};
+				}
+
+				if (event.pageX === undefined)
+				{
+					return {
+						x: event.clientX,
+						y: event.clientY
+					};
+				}
+			}
+		}
+
+		/**
+		 * window resize
+		 */
+		TAIL.prototype.tool.listenWindow = function (ele, e)
+		{
+			var shell = this.parentEle.shell;
+			$(window).resize(function ()
+			{
+				if(ele.tool.window_size !== ele.tool.getSize())
+				{
+					shell.trigger(e);
+					ele.tool.window_size = ele.tool.getSize();
+				}
+			})
+		}
+
+		/**
+		 * is style supported
+		 */
+		TAIL.prototype.tool.isStyleSupported = function (array)
+		{
+			var p, s, fake = document.createElement('div'), list = array;
+			for (p in list)
+			{
+				s = list[p];
+				if (typeof fake.style[s] !== 'undefined')
+				{
+					fake = null;
+					return [s, p];
+				}
+			}
+			return [false];
+		}
+
+		/**
+		 * is transition supported
+		 */
+		TAIL.prototype.tool.isTransition = function ()
+		{
+			return this.isStyleSupported(['transition', 'WebkitTransition', 'MozTransition', 'OTransition'])[0];
+		}
+
+		/**
+		 * is transform supported
+		 */
+		TAIL.prototype.tool.isTransform = function ()
+		{
+			return this.isStyleSupported(['transform', 'WebkitTransform', 'MozTransform', 'OTransform', 'msTransform'])[0];
+		}
+
+		/**
+		 * get window size
+		 */
+		TAIL.prototype.tool.getSize = function ()
+		{
+			var size = 0;
+			if (init_obj.media)
+			{
+				for (var i in init_obj.media)
+				{
+					var j = this.getNum(i);
+					if (window.innerWidth < j)
+					{
+						break;
+					}
+					size = j;
+				}
+			}
+			return size;
+		}
+
+		TAIL.prototype.tool.synchronize = new Synchronize(1);
+
+
+		TAIL.prototype.init = function ()
+		{
+			this.tool.parentEle = this;
+			(this.shell.find('midst').length) === 0 && this.shell.wrapInner('<div class="midst"></div>')
+			this.midst = this.shell.children(".midst");
+			this.update();
+			this.init_activeEle();
+			if (this.param_register.listenWindow === 'window')
+			{
+				this.tool.window_size = this.tool.getSize();
+				this.tool.listenWindow(this, this.events.resize);
+				this.shell.eleResize({interval: 300, event: this.events.resize})
+			}
+			else
+			{
+				this.shell.eleResize({interval: 300, event: this.events.resize})
+			}
+			this.init_drag();
+		}
+
+		TAIL.prototype.update = function ()
+		{
+			this.init_param();
+			this.init_DOM();
+		}
+
+		TAIL.prototype.init_activeEle = function ()
+		{
+			var activeEle = this.hobbyhorse.slice(0, this.param_register.items);
+			activeEle.addClass('active');
+		}
+
+		TAIL.prototype.init_drag = function ()
+		{
+			var that = this;
+			var isDown = false;
+			var doc = $(document)
+			var dislocation = false;
+
+			//  revise item left
+			var revise = function (direction, callback)
+			{
+				var _left = 0;
+				if (dislocation)
+				{
+					direction === 'right' ? _left = 0 : _left = -that.destinationLeft;
+				}
+				else
+				{
+					var _onceDistance = Math.abs(that.onceDistance);
+					var _mod = _onceDistance % that.itemSize
+					if (_mod > (that.itemSize / 3))
+					{
+						var sup = that.itemSize - _mod
+						direction === 'right' ? _left = that.tool.getNum(that.moveEle[0].style.left) + sup : _left = that.tool.getNum(that.moveEle[0].style.left) - sup
+					}
+					else
+					{
+						direction === 'right' ? _left = that.tool.getNum(that.moveEle[0].style.left) - _mod : _left = that.tool.getNum(that.moveEle[0].style.left) + _mod
+					}
+				}
+				that.tailRevise({
+					attr: {left: _left},
+					easeing: 'easeInOutExpo',
+					duration: 120,
+					complete: that.callback
+				});
+			}
+
+			that.shell.on('mousedown touchstart', function ()
+			{
+				if (that.tool.synchronize.wait())
+				{
+					$(this).stop();
+					that.shell.trigger(that.events.drag_start);
+					$(this).addClass("handle");
+					isDown = true;
+					var left = that.moveEle[0].style.left
+					var clientX = that.tool.getTouches(event).x;
+					var moveClientx = clientX;
+					var offectx = (parseInt(left) || 0) - clientX;
+					var direction;
+					var distance;
+					var count = 0;
+					var initialDistance;
+
+					//damping function f(x)=tan(x*π/2*max)*100
+					//x:item drag distance
+					//f(x): mouse point move distance
+					//max: the limit of item slide distance.
+					var damping = function (limit, mouseDistance)
+					{
+						return (Math.atan(mouseDistance / 100) * 2 * limit) / Math.PI;
+					}
+					doc.unbind('mousemove touchmove ').on('mousemove touchmove ', function ()
+					{
+						if (isDown)
+						{
+							distance = that.tool.getTouches(event).x + offectx;
+							var obj = that.getMus();
+							if (obj.leftmus >= 0 || obj.rightmus >= 0)
+							{
+								if (count == 0 && (count = 1))
+								{
+									initialDistance = distance;
+									moveClientx = that.tool.getTouches(event).x;
+								}
+								var mouseDistance = that.tool.getTouches(event).x - moveClientx;
+								distance = damping(that.itemWidth, mouseDistance) + initialDistance;
+								dislocation = true;
+							}
+							else
+							{
+								dislocation = false;
+							}
+							for (var i in that.moveEle)
+							{
+								that.moveEle[i].style.left = distance + "px";
+							}
+						}
+					}).unbind('mouseup touchend touchcancel').on('mouseup touchend touchcancel', function ()
+					{
+						doc.unbind('mousemove mousedown mouseup touchend touchmove touchstart touchcancel');
+						that.onceDistance = that.tool.getNum(that.moveEle[0].style.left) - that.tool.getNum(left);
+						direction = that.onceDistance > 0 ? 'right' : 'left';
+						isDown = false;
+						that.shell.removeClass("handle");
+						revise(direction, that.callback);
+						that.shell.trigger(that.events.drag_end);
+					})
+				}
+			})
+		}
+
+		TAIL.prototype.init_param = function ()
+		{
+			var tempObj;
+			for (var k in this.param_register)
+			{
+				init_obj[k] && (this.param_register[k] = init_obj[k]);
+			}
+			if (init_obj)
+			{
+				if (init_obj.media)
+				{
+					var width = init_obj.listenWindow==='window'?window.innerWidth:this.shell.outerWidth();
+					for (var i in init_obj.media)
+					{
+						if (parseInt(i) > width)
+						{
+							break;
+						}
+						tempObj = init_obj.media[i];
+					}
+				}
+				else
+				{
+					tempObj = init_obj;
+				}
+			}
+			for (var k in this.param_register)
+			{
+				tempObj[k] && (this.param_register[k] = tempObj[k]);
+			}
+		}
+
+		TAIL.prototype.init_DOM = function ()
+		{
+			var width = parseInt(this.shell.width());
+			this.itemWidth = parseInt((width - this.param_register.margin * (this.param_register.items - 1)) / this.param_register.items)
+			this.hobbyhorse.outerWidth(this.itemWidth);
+			this.midst.css('width', (this.hobbyhorse.outerWidth() + this.param_register.margin) * this.hobbyhorse.length)
+			this.hobbyhorse.css({
+				"margin-right": this.param_register.margin + "px",
+			})
+			this.itemSize = this.itemWidth + this.param_register.margin;
+			this.destinationLeft = this.itemSize * (this.hobbyhorseLength - this.param_register.items);
+		}
+
+		TAIL.prototype.tailRevise = function (obj)
+		{
+			var that = this;
+			for (var i in this.moveEle)
+			{
+				(i == this.moveEle.length - 1) && ($(this.moveEle[i]).animate(obj.attr, {
+					duration: obj.duration,
+					easeing: obj.easeing,
+					complete: function ()
+					{
+						var _complete = obj.complete
+						eval('_complete(that)')
+					}
+				}));
+				$(this.moveEle[i]).animate(obj.attr, {duration: obj.duration, easeing: obj.easeing})
+			}
+		}
+
+		TAIL.prototype.setActive = function ()
+		{
+			var i = Math.abs(Math.round(this.tool.getNum(this.moveEle[0].style.left) / this.itemSize));
+			this.hobbyhorse.removeClass('active');
+			this.hobbyhorse.slice(i, i + this.param_register.items).addClass('active');
+		}
+
+		TAIL.prototype.callback = function (obj)
+		{
+			var that = obj;
+			that.setActive();
+			that.tool.synchronize.signal();
+			that.shell.trigger(that.events.slide_end);
+		}
+
+		TAIL.prototype.tailAnimate = function (array, _left)
+		{
+			var n = 0;
+			var that = this;
+
+			function setTime()
+			{
+				n === array.length - 1 ? array.eq(n).animate({left: _left}, that.param_register.duration, that.param_register.ease, function ()
+				{
+					var _callback = that.callback;
+					eval('_callback(that)')
+				}) : array.eq(n).animate({left: _left}, that.param_register.duration, that.param_register.ease);
+				n++;
+				if (n < array.length)
+				{
+					setTimeout(setTime, 30)
+				}
+			}
+
+			setTime();
+		}
+
+		TAIL.prototype.nextItem = function ()
+		{
+			var array = $([])
+			var activeEle = this.hobbyhorse.filter('.active');
+			$.merge(array, activeEle);
+			$.merge(array, activeEle.last().nextAll());
+			$.merge(array, activeEle.first().prevAll());
+			var _length = activeEle.last().nextAll('.item').length;
+			var count = _length < this.param_register.slide ? _length : this.param_register.slide;
+			var _left = this.tool.getNum(this.moveEle[0].style.left) - count * this.itemSize + 'px';
+			this.tailAnimate(array, _left);
+		}
+
+		TAIL.prototype.prevItem = function ()
+		{
+			var array = $([])
+			var activeEle = this.hobbyhorse.filter('.active');
+			$.merge(array, $($.makeArray(activeEle).reverse()));
+			$.merge(array, $($.makeArray(activeEle.first().prevAll())));
+			$.merge(array, $($.makeArray(activeEle.last().nextAll()).reverse()));
+			var _length = activeEle.first().prevAll('.item').length;
+			var count = _length < this.param_register.slide ? _length : this.param_register.slide;
+			var _left = this.tool.getNum(this.moveEle[0].style.left) + count * this.itemSize + 'px';
+			this.tailAnimate(array, _left);
+		}
+
+		TAIL.prototype.getMus = function ()
+		{
+			var paddingleft = parseInt(this.shell.css("padding-left"));
+			var borderleft = parseInt(this.shell.css("border-left"));
+			var shellright = this.shell.offset().left + this.shell.width() + paddingleft + borderleft;
+			var hobbyhorseright = this.hobbyhorse.last().offset().left + this.hobbyhorse.last().outerWidth();
+			var shellleft = this.shell.offset().left + paddingleft + borderleft;
+			var hobbyhorseleft = this.hobbyhorse.first().offset().left;
+			var rightmus = shellright - hobbyhorseright;
+			var leftmus = hobbyhorseleft - shellleft;
+			return {
+				rightmus: rightmus,
+				leftmus: leftmus,
+				shellleft: shellleft,
+				shellright: shellright,
+				hobbyhorseright: hobbyhorseright
+			};
+		}
+
+		TAIL.prototype.autoAdjust = function ()
+		{
+			var active = this.shell.find('.item.active');
+			var a = active.length, b = this.param_register.items;
+			if (a != b)
+			{
+				if (b > a)
+				{
+					var _next = active.last().nextAll('.item');
+					var _prev = active.first().prevAll('.item');
+					_next.length > 0 ? _next.slice(0, b - a).addClass('active') : _prev.slice(0, b - a).addClass('active')
+				}
+				else
+				{
+					active.slice(b - a).removeClass('active')
+				}
+			}
+			var obj = this.getMus();
+			var shift = active.first().offset().left - obj.shellleft;
+			this.hobbyhorse.css('left', parseInt(this.hobbyhorse.css('left')) - shift + 'px');
+			obj = this.getMus();
+			(obj.rightmus > 0) && (this.hobbyhorse.css('left', (parseInt(this.hobbyhorse.css('left')) + obj.shellright - obj.hobbyhorseright + "px")));
+			(obj.leftmus > 0) && (this.hobbyhorse.css('left', 0 + "px"));
+		}
+
+
+		$.fn.goTAIL = function (option)
+		{
+			return new TAIL(this, option);
+		}
+	})(jQuery)
+
+
+	var init_obj =
+	{
+		listenWindow:'window',
+		items: 3,
+		loop: false,
+		margin: 20,
+		ease: 'easeInOutExpo',
+		duration: 560,
+		media: {
+			0: {
+				slide: 1,
+				items: 1
+			},
+			483: {
+				slide: 1,
+				items: 2
+			},
+			767: {
+				slide: 2,
+				items: 3
+			},
+			1019: {
+				slide: 3,
+				items: 4
+			},
+			1329: {
+				slide: 4,
+				items: 5
+			},
+			1569: {
+				slide: 5,
+				items: 6
+			}
+		}
+	}
+	$(".tail-shell").goTAIL(init_obj)
+	$('#next').on('click', function ()
+	{
+		$(".tail-shell").trigger('next_item')
+	})
+	$('#prev').on('click', function ()
+	{
+		$(".tail-shell").trigger('prev_item')
+	})
+</script>
+</body>
+</html>
